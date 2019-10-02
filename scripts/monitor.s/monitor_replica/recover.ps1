@@ -9,8 +9,6 @@ if ($hostname -ne $active_srv) {
     exit 0
 }
 
-Write-Output "start" > .\test.txt
-
 $targetVMName = $env:TARGET_VM_NAME
 $primaryHostname =  $env:PRIMARY_HOSTNAME
 $secondaryHostname =  $env:SECONDARY_HOSTNAME
@@ -64,8 +62,6 @@ if ($? -eq $False) {
     exit 0
 }
 
-Write-Output "Before clprexec" > .\beforeclprexec.txt
-
 #
 # Check if cluster service is running on opposite server.
 #
@@ -73,8 +69,6 @@ $ret = clprexec --script "check.bat" -h $oppositeIp
 if ($? -eq $False) {
     exit 0
 }
-
-Write-Output "Before compare status" > .\beforecomparestatus.txt
 
 #
 # Check if opposite server is waiting for VM replication.
@@ -84,56 +78,82 @@ try {
 } catch {
     exit 1
 }
-if ($vmRepInfo.State -ne "WaitingForStartResynchronize") {
+if ($vmRepInfo.State -eq "WaitingForStartResynchronize") {
+    ##### Recover Process for Turned off situation #####
+    try {
+        clprexec --script "recover.bat" -h $oppositeIp
+    } catch {
+        exit 1
+    }
+
+    while (1) {
+        $vmRepInfo = Get-VMReplication -VMName $targetVMName -ComputerName $primaryFQDN
+        if ($vmRepInfo.State -eq "WaitingForInitialReplication") {
+            Write-Output $vmRepInfo.State > .\repinfo2.txt
+           break
+        }
+    }
+
+    try {
+        Set-VMReplication -VMName $targetVMName -Reverse -ReplicaServerName $primaryFQDN -ComputerName $secondaryFQDN -AuthenticationType "Certificate" -CertificateThumbprint $secondaryThumbprint -Confirm:$False
+    } catch {
+        exit 1
+    }
+
+    while (1) {
+        $vmRepInfo = Get-VMReplication -VMName $targetVMName
+        if ($vmRepInfo.State -eq "ReadyForInitialReplication") {
+            Write-Output $vmRepInfo.State > .\repinfo3.txt
+            break
+        }
+    }
+
+    try {
+        Start-VMInitialReplication -VMName $targetVMName -ComputerName $secondaryFQDN
+    } catch {
+        exit 1
+    }
+
+
+    while (1) {
+        $vmRepInfo = Get-VMReplication -VMName $targetVMName
+        sleep -s 5
+        if ($vmRepInfo.State -eq "Replicating") {
+            break
+        }
+    }
+    exit 0
+} elseif ($vmRepInfo.State -eq "Error") {
+    ##### Recover Process for OS shutdown situation #####
+    $vmRepInfo = Get-VMReplication -VMName $targetVMName
+    if ($vmRepInfo.State -ne "FailedOverWaitingCompletion") {
+        exit 1
+    }
+
+    try {
+        Stop-VMFailover -VMName $targetVMName -ComputerName $secondaryFQDN -Confirm:$False
+    } catch {
+        exit 1
+    }
+
+    try {
+        Resume-VMReplication -VMName $targetVMName -ComputerName $primaryFQDN -Confirm:$False
+    } catch {
+        exit 1
+    }
+
+    try {
+        Start-VM -Name $targetVMName -ComputerName $primaryFQDN -Confirm:$False
+    } catch {
+        exit 1
+    }
+
+    #
+    # For consistency between ECX and Hyper-V Replica
+    #
+    clpgrp -m
+    exit 0
+} else {
     Write-Output $vmRepInfo.State > .\repinfo.txt
     exit 0
-}
-Write-Output $vmRepInfo.State > .\repinfo.txt
-
-
-##### Recover Process #####
-Write-Output "start recover process" > .\start_recover_process.txt
-
-try {
-    clprexec --script "recover.bat" -h $oppositeIp
-} catch {
-    exit 1
-}
-
-while (1) {
-    $vmRepInfo = Get-VMReplication -VMName $targetVMName -ComputerName $primaryFQDN
-    if ($vmRepInfo.State -eq "WaitingForInitialReplication") {
-        Write-Output $vmRepInfo.State > .\repinfo2.txt
-       break
-    }
-}
-Write-Output $vmRepInfo.State > .\repinfo2.txt
-
-try {
-    Set-VMReplication -VMName $targetVMName -Reverse -ReplicaServerName $primaryFQDN -ComputerName $secondaryFQDN -AuthenticationType "Certificate" -CertificateThumbprint $secondaryThumbprint -Confirm:$False
-} catch {
-    exit 1
-}
-
-while (1) {
-    $vmRepInfo = Get-VMReplication -VMName $targetVMName
-    if ($vmRepInfo.State -eq "ReadyForInitialReplication") {
-        Write-Output $vmRepInfo.State > .\repinfo3.txt
-        break
-    }
-}
-
-try {
-    Start-VMInitialReplication -VMName $targetVMName -ComputerName $secondaryFQDN
-} catch {
-    exit 1
-}
-
-
-while (1) {
-    $vmRepInfo = Get-VMReplication -VMName $targetVMName
-    sleep -s 5
-    if ($vmRepInfo.State -eq "Replicating") {
-        break
-    }
 }
