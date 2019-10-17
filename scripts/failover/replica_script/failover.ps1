@@ -9,30 +9,16 @@ $primaryHostIp = $env:PRIMARY_HOST_IP_ADDRESS
 $secondaryHostIp = $env:SECONDARY_HOST_IP_ADDRESS
 
 #
-# Get-VMReplication server shows the primary server and replica server
-# of Hyper-V Replica
+# If primary server is shutdown and secondary server becomes active server,
+# replication is stopped forcibly.
+# Get-VMReplication server shows the below value.
+# PrimaryServer: crushed server
+# ReplicaServer: active server
 #
 $VMRepInfo = Get-VMReplication -VMName $targetVMName
+$mode = $VMRepInfo.Mode
 $primaryFQDN = $VMRepInfo.PrimaryServer
 $secondaryFQDN = $VMRepInfo.ReplicaServer
-
-#
-# Get information of opposite server (crushed server).
-# Check whether primary server of Hyper-V Replica and active server of ECX
-# are same or not.
-# If these server is same, no need to reverse replication.
-#
-$tmpPNameList = $primaryFQDN.Split(".")
-$tmpPName = $tmpPNameList[0]
-if ($tmpPName -eq $hostname) {
-    $vmRepInfoP = Get-VMReplication -VMName $targetVMName -ComputerName $primaryFQDN
-    $vmRepInfoS = Get-VMReplication -VMName $targetVMName -ComputerName $secondaryFQDN
-    if ($vmRepInfoP.State -eq "Replicating" -And $vmRepInfoS.State -eq "Replicating") {
-        exit 0
-    }
-    
-    ### We have to add any codes here to support other uncosidered situation.
-}
 
 #
 # Get credential information of both servers.
@@ -45,8 +31,69 @@ $tmp = ls cert:\LocalMachine\My | Where-Object {$_.Subject -eq $tmp}
 $secondaryThumbprint = $tmp.Thumbprint
 
 #
-# Start VM on secondary server.
+# Get information of opposite server.
 #
-Start-VMFailover -VMName $targetVMName -ComputerName $secondaryFQDN -Confirm:$False
-# Complete-VMFailover -VMName $targetVMName -ComputerName $secondaryFQDN -Confirm:$False
-Start-VM -VMName $targetVMName -Confirm:$False
+$tmpPNameList = $primaryFQDN.Split(".")
+$tmpPName = $tmpPNameList[0]
+$ownHostname = "null"
+$ownFQDN = "null"
+$ownIp = "null"
+$ownThumbprint = "null"
+$oppositeHostname = "null"
+$oppositeFQDN = "null"
+$oppositeIp = "null"
+$oppositeThumbprint = "null"
+if ($tmpPName -eq $primaryHostname) {
+    if ($mode -eq "Primary") {
+        $ownHostname = $primaryHostname
+        $ownFQDN = $primaryFQDN
+        $ownIp = $primaryHostIp
+        $ownThumbprint = $primaryThumbprint
+        $oppositeHostname = $secondaryHostname
+        $oppositeFQDN = $secondaryFQDN
+        $oppositeIp = $secondaryHostIp
+        $oppositeThumbprint = $secondaryThumbprint
+    } else {
+        $ownHostname = $secondaryHostname
+        $ownFQDN = $secondaryFQDN
+        $ownIp = $secondaryHostIp
+        $ownThumbprint = $secondaryThumbprint
+        $oppositeHostname = $primaryHostname
+        $oppositeFQDN = $primaryFQDN
+        $oppositeIp = $primaryHostIp
+        $oppositeThumbprint = $primaryThumbprint
+    }
+} else {
+    if ($mode -eq "Primary") {
+        $ownHostname = $secondaryHostname
+        $ownFQDN = $primaryFQDN
+        $ownIp = $secondaryHostIp
+        $ownThumbprint = $primaryThumbprint
+        $oppositeHostname = $primaryHostname
+        $oppositeFQDN = $secondaryFQDN
+        $oppositeIp = $primaryHostIp
+        $oppositeThumbprint = $secondaryThumbprint
+    } else {
+        $ownHostname = $primaryHostname
+        $ownFQDN = $secondaryFQDN
+        $ownIp = $primaryHostIp
+        $ownThumbprint = $secondaryThumbprint
+        $oppositeHostname = $secondaryHostname
+        $oppositeFQDN = $primaryFQDN
+        $oppositeIp = $secondaryHostIp
+        $oppositeThumbprint = $primaryThumbprint
+    }
+}
+
+
+try {
+    Start-VMFailover -VMName $targetVMName -ComputerName $ownFQDN -Confirm:$False
+} catch {
+    exit 1
+}
+
+try {
+    Start-VM -VMName $targetVMName -Confirm:$False
+} catch {
+    exit 1
+}
