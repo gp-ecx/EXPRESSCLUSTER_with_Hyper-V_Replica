@@ -1,3 +1,7 @@
+#
+# Committed on Oct 17 2019
+#
+
 $hostname = hostname
 $group = $env:FAILOVER_NAME
 $active_srv = clpgrp -n $group
