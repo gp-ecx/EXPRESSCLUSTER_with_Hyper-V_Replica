@@ -1,7 +1,3 @@
-#
-# Committed on Oct 17 2019
-#
-
 $hostname = hostname
 $group = $env:FAILOVER_NAME
 $active_srv = clpgrp -n $group
@@ -161,6 +157,12 @@ while (1) {
             } catch {
                 exit 1
             }
+        } elseif ($oppRep.State -eq "WaitingForStartResynchronize") {
+            #
+            # Both server's forced termination STEP 1/
+            # monitor_replica will execute recovery process
+            #
+            exit 0
         }
     } elseif ($ownRep.State -eq "FailedOverWaitingCompletion") {
         if ($oppRep.State -eq "PreparedForFailover") {
@@ -184,5 +186,10 @@ while (1) {
                 exit 1
             }
         }
+    } else {
+        #
+        # monitor_replica executes recovery process
+        #
+        exit 0
     }
 }

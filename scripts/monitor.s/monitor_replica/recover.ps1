@@ -1,7 +1,3 @@
-#
-# Committed on Oct 17 2019
-#
-
 $hostname = hostname
 $group = $env:FAILOVER_NAME
 $active_srv = clpgrp -n $group
@@ -116,6 +112,7 @@ if ($? -eq $False) {
 # Recovery process
 #
 $status_ok_count = 0
+$status_error_count = 0
 while (1) {
     #
     # If "Replicating" status (fine status) is repeated twice, this monitor script exits.
@@ -143,7 +140,7 @@ while (1) {
         # If VM is Off or Saved, turn on the VM.
         #
         if ($ownRep.Mode -eq "Primary") {
-            if (($ownVM.State -eq "Off") -Or ($ownVM.State -eq "Saved")) {
+            if (($ownVM.State -eq "Off") -Or ($ownVM.State -eq "Saved") -Or ($ownVM.State -eq "Paused")) {
                 try {
                     Start-VM -Name $targetVMName -Confirm:$False
                 } catch {
@@ -151,7 +148,7 @@ while (1) {
                 }
             }
         } elseif ($ownRep.Mode -eq "Replica") {
-            if (($oppVM.State -eq "Off") -Or ($oppVM.State -eq "Saved")) {
+            if (($oppVM.State -eq "Off") -Or ($oppVM.State -eq "Saved") -Or ($oppVM.State -eq "Paused")) {
                 try {
                     Start-VM -Name $targetVMName -ComputerName $oppositeFQDN -Confirm:$False
                 } catch {
@@ -258,20 +255,70 @@ while (1) {
             #
             # OS shutdown scenario STEP 2/2
             #
-
+            
             #
             # If opposite VM is Saved, start the VM.
             #
-            if ($oppRep.State -eq "Saved") {
+            if ($oppVM.State -eq "Saved") {
                 try {
-                    Start-VM -Name $targetVMName -ComputerName $oppositeFQDN -Confirm:$False
+                    Start-VM -Name $targetVMName -ComputerName $oppositeFQDN -Confirm:$False *> start-vm.txt
                 } catch {
                     exit 1
                 }
             }
-
+            
             try {
                 Resume-VMReplication -VMName $targetVMName -ComputerName $oppositeFQDN -Confirm:$False
+            } catch {
+                exit 1
+            }
+
+            #
+            # Split brain CASE 2 1/2
+            # Resume-VMReplication does not work.
+            # Reverse replication dirrection.
+            #
+            if ($status_error_count -gt 0) {
+                if ($oppVM.State -eq "Running") {
+                    try {
+                        Stop-VM -Name $targetVMName -ComputerName $oppositeFQDN -Confirm:$False -Force
+                    } catch {
+                        exit 1
+                    }
+                }
+
+                try {
+                    clprexec --script "recover.bat" -h $oppositeIp
+                } catch {
+                    exit 1
+                }
+                
+                while (1) {
+                    $oppRep = Get-VMReplication -VMName $targetVMName -ComputerName $oppositeFQDN
+                    if ($oppRep.State -eq "WaitingForInitialReplication") {
+                        break
+                    }
+                }
+            }
+
+            $status_error_count = $status_error_count + 1
+        } elseif ($oppRep.State -eq "WaitingForInitialReplication") {
+            #
+            # Split brain CASE 2 2/2
+            #
+            try {
+                Start-VMFailover -VMName $targetVMName -ComputerName $ownFQDN -Confirm:$False
+            } catch {
+                exit 1
+            }
+        }
+    } elseif ($ownRep.State -eq "WaitingForInitialReplication") {
+        if ($oppRep.State -eq "Replicating") {
+            #
+            # Both server's forced termination scenario
+            #
+            try {
+                Resume-VMReplication -VMName $targetVMName -ComputerName $ownFQDN -Confirm:$False
             } catch {
                 exit 1
             }
