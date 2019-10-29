@@ -2,7 +2,7 @@ rem ***************************************
 rem *              stop.bat               *
 rem *                                     *
 rem * title   : stop script file sample   *
-rem * date    : 2007/05/31                *
+rem * date    : 2019/10/28                *
 rem * version : 9.0.3-1                   *
 rem ***************************************
 

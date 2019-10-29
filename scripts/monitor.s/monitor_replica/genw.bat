@@ -3,6 +3,7 @@ rem *               genw.bat              *
 rem ***************************************
 rem ***************************************
 rem *               genw.bat              *
+rem *              2019/10/28             *
 rem ***************************************
 
 cd "C:\Program Files\CLUSTERPRO\scripts\monitor.s\monitor_replica

@@ -2,12 +2,13 @@ rem ***************************************
 rem *              stop.bat               *
 rem *                                     *
 rem * title   : stop script file sample   *
-rem * date    : 2007/05/31                *
+rem * date    : 2019/10/28                *
 rem * version : 9.0.3-1                   *
 rem ***************************************
 
 
-
+cd "%CLP_SCRIPT_PATH%"
+call cluster_config.bat
 
 
 rem ***************************************
@@ -36,6 +37,8 @@ rem *************
 rem 業務通常処理
 rem *************
 
+armload REPSTOP /U Administrator /W powershell.exe .\stop.ps1
+armkill REPSTOP
 
 rem プライオリティ チェック
 IF "%CLP_SERVER%" == "OTHER" GOTO ON_OTHER1
@@ -71,6 +74,8 @@ rem *************
 rem フェイルオーバ後の業務起動ならびに復旧処理
 rem *************
 
+armload REPSTOP /U Administrator /W powershell.exe .\stop.ps1
+armkill REPSTOP
 
 rem プライオリティ のチェック
 IF "%CLP_SERVER%" == "OTHER" GOTO ON_OTHER2

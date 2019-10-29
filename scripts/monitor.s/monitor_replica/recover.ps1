@@ -1,5 +1,5 @@
 #
-# Oct 24 2019
+# Oct 28 2019
 #
 
 $hostname = hostname
@@ -127,14 +127,15 @@ while (1) {
 
     #
     # In each roop, get Hyper-V Replica status, and branch off depending the status.
+    # This script will be executed while both servers are running.
     #
     try {
-        $ownRep = Get-VMReplication -VMName $targetVMName -ComputerName $ownFQDN
-        $oppRep = Get-VMReplication -VMName $targetVMName -ComputerName $oppositeFQDN
-        $ownVM = Get-VM -VMName $targetVMName -ComputerName $ownFQDN
-        $oppVM = Get-VM -VMName $targetVMName -ComputerName $oppositeFQDN
+        $ownRep = Get-VMReplication -VMName $targetVMName -ComputerName $ownFQDN -ErrorAction stop
+        $oppRep = Get-VMReplication -VMName $targetVMName -ComputerName $oppositeFQDN -ErrorAction stop
+        $ownVM = Get-VM -VMName $targetVMName -ComputerName $ownFQDN -ErrorAction stop
+        $oppVM = Get-VM -VMName $targetVMName -ComputerName $oppositeFQDN -ErrorAction stop
     } catch {
-        exit 1
+        exit 0
     }
 
     if (($ownRep.State -eq "Replicating") -And ($oppRep.State -eq "Replicating")) {
@@ -222,6 +223,15 @@ while (1) {
                     break
                 }
             }
+        } elseif ($oppRep.State -eq "PreparedForFailover") {
+            #
+            # When failover fails 1/2
+            #
+            try {
+                Complete-VMFailover -VMName $targetVMName -ComputerName $ownFQDN -Confirm:$False
+            } catch {
+                exit 1
+            }
         }
     } elseif ($ownRep.State -eq "ReadyForInitialReplication") {
         if ($oppRep.State -eq "WaitingForInitialReplication") {
@@ -244,6 +254,9 @@ while (1) {
         }
     } elseif ($ownRep.State -eq "Error") {
         if ($oppRep.State -eq "Replicating") {
+            #
+            # Both server's OS shutdown
+            #
             try {
                 Resume-VMReplication -VMName $targetVMName -ComputerName $ownFQDN -Confirm:$False
             } catch {
@@ -265,7 +278,7 @@ while (1) {
             #
             if ($oppVM.State -eq "Saved") {
                 try {
-                    Start-VM -Name $targetVMName -ComputerName $oppositeFQDN -Confirm:$False *> start-vm.txt
+                    Start-VM -Name $targetVMName -ComputerName $oppositeFQDN -Confirm:$False
                 } catch {
                     exit 1
                 }
@@ -315,6 +328,22 @@ while (1) {
             } catch {
                 exit 1
             }
+        } elseif ($oppRep.State -eq "WaitingForStartResynchronize") {
+            #
+            # Both server's forced termination scenario
+            #
+            try {
+                clprexec --script "recover.bat" -h $oppositeIp
+            } catch {
+                exit 1
+            }
+
+            while (1) {
+                $oppRep = Get-VMReplication -VMName $targetVMName -ComputerName $oppositeFQDN
+                if ($oppRep.State -eq "WaitingForInitialReplication") {
+                    break
+                }
+            }
         }
     } elseif ($ownRep.State -eq "WaitingForInitialReplication") {
         if ($oppRep.State -eq "Replicating") {
@@ -325,6 +354,33 @@ while (1) {
                 Resume-VMReplication -VMName $targetVMName -ComputerName $ownFQDN -Confirm:$False
             } catch {
                 exit 1
+            }
+        }
+    } elseif ($ownRep.State -eq "WaitingForStartResynchronize") {
+        #
+        # Both server's forced termination scenario
+        #
+        try {
+            Resume-VMReplication -VMName $targetVMName -ComputerName $ownFQDN -Resynchronize -Confirm:$False
+        } catch {
+            exit 1
+        }
+    } elseif ($ownRep.State -eq "FailedOver") {
+        if ($oppRep.State -eq "PreparedForFailover") {
+            #
+            # When failover fails 2/2
+            #
+            try {
+                Set-VMReplication -VMName $targetVMName -Reverse -ReplicaServerName $oppositeFQDN -ComputerName $ownFQDN -AuthenticationType "Certificate" -CertificateThumbprint $ownThumbprint -Confirm:$False
+            } catch {
+                exit 1
+            }
+
+            while (1) {
+                $ownRep = Get-VMReplication -VMName $targetVMName
+                if ($ownRep.Mode -eq "Primary") {
+                    break
+                }
             }
         }
     } else {

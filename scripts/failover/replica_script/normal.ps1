@@ -1,5 +1,5 @@
-# 
-# Oct 24 2019
+#
+# Oct 28 2019
 #
 
 $hostname = hostname
@@ -90,8 +90,37 @@ if ($tmpPName -eq $primaryHostname) {
 }
 
 $ownRep = Get-VMReplication -VMName $targetVMName -ComputerName $ownFQDN
-$oppRep = Get-VMReplication -VMName $targetVMName -ComputerName $oppositeFQDN
+try {
+    $oppRep = Get-VMReplication -VMName $targetVMName -ComputerName $oppositeFQDN -ErrorAction stop
+} catch {
+    #
+    # Only this server starts up after both server's forced termination
+    #
+    if ($ownRep.Mode -eq "Primary") {
+        Start-VM -VMName $targetVMName -Confirm:$False
+        exit 0
+    } elseif ($ownRep.Mode -eq "Replica") {
+        if ($ownRep.State -ne "FailedOverWaitingCompletion") {
+            try {
+                Start-VMFailover -VMName $targetVMName -ComputerName $ownFQDN -Confirm:$False
+            } catch {
+                exit 1
+            }
+        }
+
+        try {
+            Start-VM -VMName $targetVMName -Confirm:$False
+        } catch {
+            exit 1
+        }
+        exit 0
+    }
+}
 if (($ownRep.State -eq "Replicating") -And ($oppRep.State -eq "Replicating") -And ($ownRep.Mode -eq "Primary")) {
+    $ownVM = Get-VM -Name $targetVMName
+    if ($ownVM.State -eq "Running") {
+        Start-VM -VMName $targetVMName -Confirm:$False
+    }
     exit 0
 }
 
@@ -106,7 +135,6 @@ while (1) {
     $oppRep = Get-VMReplication -VMName $targetVMName -ComputerName $oppositeFQDN
     $ownVM = Get-VM -Name $targetVMName
     $oppVM = Get-VM -Name $targetVMName -ComputerName $oppositeFQDN
-
     #
     # If opposite VM is running, turn off it.
     #
@@ -118,7 +146,6 @@ while (1) {
         }
         while (1) {
             $oppVM = Get-VM -Name $targetVMName -ComputerName $oppositeFQDN
-            sleep -s 5
             if ($oppVM.State -eq "Off") {
                 break
             }
@@ -139,7 +166,7 @@ while (1) {
                     }
                 }
                 #
-                # Fail over has been completed.
+                # Failover has been completed.
                 #
                 exit 0
             } elseif ($ownRep.Mode -eq "Replica") {
@@ -188,6 +215,13 @@ while (1) {
                 Set-VMReplication -VMName $targetVMName -Reverse -ReplicaServerName $oppositeFQDN -ComputerName $ownFQDN -AuthenticationType "Certificate" -CertificateThumbprint $ownThumbprint -Confirm:$False
             } catch {
                 exit 1
+            }
+
+            while (1) {
+                $ownRep = Get-VMReplication -VMName $targetVMName
+                if ($ownRep.Mode -eq "Primary") {
+                    break
+                }
             }
         }
     } else {

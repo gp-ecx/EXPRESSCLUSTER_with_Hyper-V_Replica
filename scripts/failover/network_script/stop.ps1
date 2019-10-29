@@ -1,3 +1,7 @@
+#
+# Oct 28 2019
+#
+
 $hostname = hostname
 $VMName = "RouterVM_template"
 $primaryHostname =  $env:PRIMARY_HOSTNAME
