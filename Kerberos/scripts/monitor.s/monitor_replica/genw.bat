@@ -8,7 +8,7 @@ rem ***************************************
 
 cd "..\scripts\failover\replica_script"
 call .\cluster_config.bat
-cd "..\..\monitor.s\monitor_replica
+cd "..\..\monitor.s\monitor_replica"
 armload REPRECOVER /U Administrator /W Powershell.exe .\recover.ps1
 armkill REPRECOVER
 
