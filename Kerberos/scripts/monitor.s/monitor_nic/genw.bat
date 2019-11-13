@@ -8,7 +8,7 @@ rem ***************************************
 
 cd "..\scripts\failover\replica_script"
 call .\cluster_config.bat
-cd "..\..\monitor.s\monitor_nic
+cd "..\..\monitor.s\monitor_nic"
 armload NICRECOVER /U Administrator /W Powershell.exe .\recover.ps1
 armkill NICRECOVER
 
