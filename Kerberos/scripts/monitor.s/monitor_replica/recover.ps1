@@ -1,5 +1,5 @@
 #
-# Oct 30 2019
+# Dec 17 2019
 #
 
 $hostname = hostname
@@ -32,6 +32,16 @@ $primaryFQDN = $VMRepInfo.PrimaryServer
 $secondaryFQDN = $VMRepInfo.ReplicaServer
 
 #
+# Get credential information of both servers.
+#
+$tmp = "CN=" + $primaryFQDN
+$tmp = ls cert:\LocalMachine\My | Where-Object {$_.Subject -eq $tmp}
+$primaryThumbprint = $tmp.Thumbprint
+$tmp = "CN=" + $secondaryFQDN
+$tmp = ls cert:\LocalMachine\My | Where-Object {$_.Subject -eq $tmp}
+$secondaryThumbprint = $tmp.Thumbprint
+
+#
 # Get information of opposite server.
 #
 $tmpPNameList = $primaryFQDN.Split(".")
@@ -39,41 +49,51 @@ $tmpPName = $tmpPNameList[0]
 $ownHostname = "null"
 $ownFQDN = "null"
 $ownIp = "null"
+$ownThumbprint = "null"
 $oppositeHostname = "null"
 $oppositeFQDN = "null"
 $oppositeIp = "null"
+$oppositeThumbprint = "null"
 
 if ($tmpPName -eq $primaryHostname) {
     if ($mode -eq "Primary") {
         $ownHostname = $primaryHostname
         $ownFQDN = $primaryFQDN
         $ownIp = $primaryHostIp
+        $ownThumbprint = $primaryThumbprint
         $oppositeHostname = $secondaryHostname
         $oppositeFQDN = $secondaryFQDN
         $oppositeIp = $secondaryHostIp
+        $oppositeThumbprint = $secondaryThumbprint
     } else {
         $ownHostname = $secondaryHostname
         $ownFQDN = $secondaryFQDN
         $ownIp = $secondaryHostIp
+        $ownThumbprint = $secondaryThumbprint
         $oppositeHostname = $primaryHostname
         $oppositeFQDN = $primaryFQDN
         $oppositeIp = $primaryHostIp
+        $oppositeThumbprint = $primaryThumbprint
     }
 } else {
     if ($mode -eq "Primary") {
         $ownHostname = $secondaryHostname
         $ownFQDN = $primaryFQDN
         $ownIp = $secondaryHostIp
+        $ownThumbprint = $primaryThumbprint
         $oppositeHostname = $primaryHostname
         $oppositeFQDN = $secondaryFQDN
         $oppositeIp = $primaryHostIp
+        $oppositeThumbprint = $secondaryThumbprint
     } else {
         $ownHostname = $primaryHostname
         $ownFQDN = $secondaryFQDN
         $ownIp = $primaryHostIp
+        $ownThumbprint = $secondaryThumbprint
         $oppositeHostname = $secondaryHostname
         $oppositeFQDN = $primaryFQDN
         $oppositeIp = $secondaryHostIp
+        $oppositeThumbprint = $primaryThumbprint
     }
 }
 #
@@ -192,7 +212,7 @@ while (1) {
             # Forced termination scenario STEP 2/3
             #
             try {
-                Set-VMReplication -VMName $targetVMName -Reverse -ReplicaServerName $oppositeFQDN -ComputerName $ownFQDN -AuthenticationType "Kerberos" -Confirm:$False
+                Set-VMReplication -VMName $targetVMName -Reverse -ReplicaServerName $oppositeFQDN -ComputerName $ownFQDN -AuthenticationType "Certificate" -CertificateThumbprint $ownThumbprint -Confirm:$False
             } catch {
                 exit 1
             }
@@ -244,8 +264,14 @@ while (1) {
             }
         } else {
             #
-            # If there are any other patterns, please add new IF
+            # Split brain CASE1
             #
+            try {
+                Stop-VM -Name $targetVMName -ComputerName $oppositeFQDN -Force -Confirm:$False
+                Stop-VMFailover -VMName $targetVMName -ComputerName $oppositeFQDN -Confirm:$False
+            } catch {
+                exit 1
+            }
         }
     } elseif ($ownRep.State -eq "Replicating") {
         if ($oppRep.State -eq "Error") {
@@ -351,7 +377,7 @@ while (1) {
             # When failover fails 2/2
             #
             try {
-                Set-VMReplication -VMName $targetVMName -Reverse -ReplicaServerName $oppositeFQDN -ComputerName $ownFQDN -AuthenticationType "Kerberos" -Confirm:$False
+                Set-VMReplication -VMName $targetVMName -Reverse -ReplicaServerName $oppositeFQDN -ComputerName $ownFQDN -AuthenticationType "Certificate" -CertificateThumbprint $ownThumbprint -Confirm:$False
             } catch {
                 exit 1
             }
